@@ -16,9 +16,20 @@
 
 #include "peripherals.h"
 
+#define     DAC_PORT_LDAC_SEL   P3SEL
+#define     DAC_PORT_LDAC_DIR   P3DIR
+#define     DAC_PORT_LDAC_OUT   P3OUT
+#define     DAC_PORT_CS_SEL         P8OUT
+#define     DAC_PORT_CS_DIR     P8DIR
+#define     DAC_PORT_CS_OUT     P8OUT
+#define     DAC_PIN_CS          BIT2
+#define     DAC_PIN_LDAC    BIT7
+
 
 // Globals
 tContext g_sContext;    // user defined type used by graphics library
+
+
 
 
 void initLeds(void)
@@ -102,6 +113,40 @@ void BuzzerOff(void)
     TB0CCTL5 = 0;
 }
 
+void initButtons(void){
+    //configure S1 and S4 with pull up resistors
+    P7SEL &= ~(BIT0|BIT4);
+    P7DIR &= ~(BIT0|BIT4);
+    P7REN |= (BIT0|BIT4);
+    P7OUT |= (BIT0|BIT4);
+
+    //configure S2 with pull up resistor
+    P3SEL &= ~BIT6;
+    P3DIR &= ~BIT6;
+    P3REN |= BIT6;
+    P3OUT |= BIT6;
+
+    //configure S3 with pull up resistor
+    P2SEL &= ~BIT2;
+    P2DIR &= ~BIT2;
+    P2REN |= BIT2;
+    P2OUT |= BIT2;
+}
+
+unsigned int readButtons(void){
+    unsigned int ret_val = 0;
+
+    if((P7IN & BIT0) == 0)
+        ret_val = 1;
+    if((P3IN & BIT6) == 0)
+        ret_val = 3;
+    if((P2IN & BIT2) == 0)
+        ret_val = 2;
+    if((P7IN & BIT4) == 0)
+        ret_val = 4;
+
+    return ret_val;
+}
 
 void configKeypad(void)
 {
@@ -188,25 +233,6 @@ unsigned char getKey(void)
     return(ret_val);
 }
 
-void initPushButons(void){
-    P1SEL &= ~BIT1;
-    P1DIR &= ~BIT1;
-    P1REN |= BIT1;
-    P1OUT |= BIT1;
-
-    P2SEL &= ~BIT1;
-    P2DIR &= ~BIT1;
-    P2REN |= BIT1;
-    P2OUT |= BIT1;
-}
-
-int readButtons(void){
-    if((P1IN & BIT1) == 0)
-        return 1;
-    if((P2IN & BIT1) == 0)
-        return 2;
-    return 0;
-}
 
 void configDisplay(void)
 {
@@ -250,6 +276,65 @@ void setupSPI_DAC(void)
      // Enable UCSI A0
      UCB0CTL1 &= ~UCSWRST;
 }
+
+
+/**
+* Initialize the DAC and its associated SPI
+* using parameters defined in peripherals.h
+*/
+void DACInit(void){
+    // Configure LDAC and CS for digital IO outputs
+    DAC_PORT_LDAC_SEL &= ~DAC_PIN_LDAC;
+    DAC_PORT_LDAC_DIR |= DAC_PIN_LDAC;
+    DAC_PORT_LDAC_OUT |= DAC_PIN_LDAC; // Deassert LDAC
+    DAC_PORT_CS_SEL &= ~DAC_PIN_CS;
+    DAC_PORT_CS_DIR |= DAC_PIN_CS;
+    DAC_PORT_CS_OUT |= DAC_PIN_CS; // Deassert CS
+}
+
+void DACSetValue(unsigned int dac_code){
+    // Start the SPI transmission by asserting CS (active
+    // Th is assumes DACInit() already called
+    DAC_PORT_CS_OUT &= ~DAC_PIN_CS;
+
+    // Write in DAC configuration bits. From DAC data sheet
+    // 3h=0011 to highest
+    // 0=DACA, 0=buffered, 1=Gain=1, 1=Out Enbl
+    dac_code |= 0x3000; // Add control bits to DAC word
+    uint8_t lo_byte = (unsigned char)(dac_code & 0x00FF);
+    uint8_t hi_byte = (unsigned char)((dac_code & 0xFF00) >> 8);
+
+    // First, send the high byte
+    DAC_SPI_REG_TXBUF = hi_byte;
+
+    // Wait for the SPI peripheral to finish transmitting
+    while(!(DAC_SPI_REG_IFG & UCTXIFG)){
+        _no_operation();
+    }
+
+    // Then send the low byte
+    DAC_SPI_REG_TXBUF = lo_byte;
+
+    // Wait for the SPI peripheral to finish transmitting
+    while(!(DAC_SPI_REG_IFG & UCTXIFG)) {
+    _no_operation();
+    }
+
+    // We are done transmitting, so de assert CS (set = 1)
+    DAC_PORT_CS_OUT |= DAC_PIN_CS;
+
+    // This DAC is designed such that the code we send does not
+    // take effect on the output until we toggle the LDAC pin.
+    // This is because the DAC has multiple outputs. This design
+    // enables a user to send voltage codes to each output and
+    // have them all take effect at the same
+    DAC_PORT_LDAC_OUT &= ~DAC_PIN_LDAC; // Assert LDAC
+    __delay_cycles(10); // small delay
+    DAC_PORT_LDAC_OUT |= DAC_PIN_LDAC; // De as sert LDAC
+
+}
+
+
 
 
 //------------------------------------------------------------------------------
