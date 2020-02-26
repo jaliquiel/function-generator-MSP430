@@ -188,6 +188,25 @@ unsigned char getKey(void)
     return(ret_val);
 }
 
+void initPushButons(void){
+    P1SEL &= ~BIT1;
+    P1DIR &= ~BIT1;
+    P1REN |= BIT1;
+    P1OUT |= BIT1;
+
+    P2SEL &= ~BIT1;
+    P2DIR &= ~BIT1;
+    P2REN |= BIT1;
+    P2OUT |= BIT1;
+}
+
+int readButtons(void){
+    if((P1IN & BIT1) == 0)
+        return 1;
+    if((P2IN & BIT1) == 0)
+        return 2;
+    return 0;
+}
 
 void configDisplay(void)
 {
@@ -212,7 +231,7 @@ void configDisplay(void)
     Graphics_flushBuffer(&g_sContext);
 }
 
-/*
+
 void setupSPI_DAC(void)
 {
 // ** Set UCSI A0 Reset=1 to configure control registers **
@@ -231,7 +250,7 @@ void setupSPI_DAC(void)
      // Enable UCSI A0
      UCB0CTL1 &= ~UCSWRST;
 }
-*/
+
 
 //------------------------------------------------------------------------------
 // Timer1 A0 Interrupt Service Routine
