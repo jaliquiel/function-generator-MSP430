@@ -149,21 +149,25 @@ void main(void)
                 state = display;
                 Graphics_clearDisplay(&g_sContext); // Clear the display
                 currButton = NULL;
+                break;
             }
             if (currButton == 2){
                 state = squareWave;
                 Graphics_clearDisplay(&g_sContext); // Clear the display
                 currButton = NULL;
+                break;
             }
             if (currButton == 3){
                 state = sawtoothWave;
                 Graphics_clearDisplay(&g_sContext); // Clear the display
                 currButton = NULL;
+                break;
             }
             if (currButton == 4){
                 state = triangleWave;
                 Graphics_clearDisplay(&g_sContext); // Clear the display
                 currButton = NULL;
+                break;
             }
 
             Graphics_clearDisplay(&g_sContext); // Clear the display
@@ -179,85 +183,112 @@ void main(void)
         case squareWave:
             currButton = readButtons();
             if (currButton == 1){
+                state = DC;
+                Graphics_clearDisplay(&g_sContext); // Clear the display
+                currButton = NULL;
+                break;
+            }
+            if (currButton == 2){
                 state = display;
                 Graphics_clearDisplay(&g_sContext); // Clear the display
                 currButton = NULL;
-            }
-            if (currButton == 2){
-                state = squareWave;
-                Graphics_clearDisplay(&g_sContext); // Clear the display
-                currButton = NULL;
+                break;
             }
             if (currButton == 3){
                 state = sawtoothWave;
                 Graphics_clearDisplay(&g_sContext); // Clear the display
                 currButton = NULL;
+                break;
             }
             if (currButton == 4){
                 state = triangleWave;
                 Graphics_clearDisplay(&g_sContext); // Clear the display
                 currButton = NULL;
+                break;
             }
 
             Graphics_clearDisplay(&g_sContext); // Clear the display
             Graphics_drawStringCentered(&g_sContext, "Square Wave State", AUTO_STRING_LENGTH, 48, 65, TRANSPARENT_TEXT);
             Graphics_flushBuffer(&g_sContext);
 
-            updateScroll();
-            while(timer_cnt == last_cnt){
-                __no_operation();
+            while(currButton != 2){
+                currButton = readButtons();
+                updateScroll();
+                last_cnt = timer_cnt;
+                while(timer_cnt < last_cnt + 5){
+                    DACSetValue(0);
+                }
+
+                last_cnt = timer_cnt;
+
+                while(timer_cnt < last_cnt + 5){
+                    DACSetValue(in_voltage);
+                }
             }
-            DACSetValue(in_voltage);
-            last_cnt = timer_cnt;
 
-
+            state = display;
+            Graphics_clearDisplay(&g_sContext); // Clear the display
+            currButton = NULL;
             break;
 
         case sawtoothWave:
             currButton = readButtons();
             if (currButton == 1){
-                state = display;
+                state = DC;
                 Graphics_clearDisplay(&g_sContext); // Clear the display
                 currButton = NULL;
+                break;
             }
             if (currButton == 2){
                 state = squareWave;
                 Graphics_clearDisplay(&g_sContext); // Clear the display
                 currButton = NULL;
+                break;
             }
             if (currButton == 3){
-                state = sawtoothWave;
+                state = display;
                 Graphics_clearDisplay(&g_sContext); // Clear the display
                 currButton = NULL;
+                break;
             }
             if (currButton == 4){
                 state = triangleWave;
                 Graphics_clearDisplay(&g_sContext); // Clear the display
                 currButton = NULL;
+                break;
             }
+            Graphics_clearDisplay(&g_sContext); // Clear the display
+            Graphics_drawStringCentered(&g_sContext, "Saw Tooth State", AUTO_STRING_LENGTH, 48, 65, TRANSPARENT_TEXT);
+            Graphics_flushBuffer(&g_sContext);
+            DACSetValue(0);
 
             break;
+
         case triangleWave:
             currButton = readButtons();
             if (currButton == 1){
-                state = display;
+                state = DC;
                 Graphics_clearDisplay(&g_sContext); // Clear the display
                 currButton = NULL;
+                break;
             }
             if (currButton == 2){
                 state = squareWave;
                 Graphics_clearDisplay(&g_sContext); // Clear the display
                 currButton = NULL;
+                break;
             }
             if (currButton == 3){
                 state = sawtoothWave;
                 Graphics_clearDisplay(&g_sContext); // Clear the display
                 currButton = NULL;
+                break;
             }
             if (currButton == 4){
-                state = triangleWave;
+                state = display;
                 Graphics_clearDisplay(&g_sContext); // Clear the display
                 currButton = NULL;
+                break;
             }
 
             break;
@@ -287,33 +318,33 @@ void updateScroll(void){
 }
 
 
-//
-//void swDelay(char numLoops)
-//{
-//	// This function is a software delay. It performs
-//	// useless loops to waste a bit of time
-//	//
-//	// Input: numLoops = number of delay loops to execute
-//	// Output: none
-//	//
-//	// smj, ECE2049, 25 Aug 2013
-//
-//	volatile unsigned int i,j;	// volatile to prevent removal in optimization
-//			                    // by compiler. Functionally this is useless code
-//
-//	for (j=0; j<numLoops; j++)
-//    {
-//    	i = 50000 ;					// SW Delay
-//   	    while (i > 0)				// could also have used while (i)
-//	       i--;
-//    }
-//}
+
+void swDelay(char numLoops)
+{
+	// This function is a software delay. It performs
+	// useless loops to waste a bit of time
+	//
+	// Input: numLoops = number of delay loops to execute
+	// Output: none
+	//
+	// smj, ECE2049, 25 Aug 2013
+
+	volatile unsigned int i,j;	// volatile to prevent removal in optimization
+			                    // by compiler. Functionally this is useless code
+
+	for (j=0; j<numLoops; j++)
+    {
+    	i = 50000 ;					// SW Delay
+   	    while (i > 0)				// could also have used while (i)
+	       i--;
+    }
+}
 
 
 void runTimerA2(void){
     TA2CTL = TASSEL_1 + ID_0 + MC_1;
-    // 0.005 = maxcnt + 1 * (1/32768)
-    TA2CCR0 = 163; // interrupt every 0.005 seconds
+    // 0.001 = maxcnt + 1 * (1/32768)
+    TA2CCR0 = 32; // interrupt every 0.001 seconds
     TA2CCTL0 = CCIE;
 }
 
