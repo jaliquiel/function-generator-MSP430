@@ -58,6 +58,7 @@ char date[7] = {0};
 #define MA_PER_BIT        (0.0244f)
 
 unsigned int in_voltage;
+float input_voltage;
 
 enum LCD_STATE {display = 0, DC = 1, squareWave = 2, sawtoothWave = 3, triangleWave = 4};
 
@@ -215,13 +216,13 @@ void main(void)
                 currButton = readButtons();
                 updateScroll();
                 last_cnt = timer_cnt;
-                while(timer_cnt < last_cnt + 5){
+                while(timer_cnt < last_cnt + 50){ // + 5 if MAXCNT 32 ,
                     DACSetValue(0);
                 }
 
                 last_cnt = timer_cnt;
 
-                while(timer_cnt < last_cnt + 5){
+                while(timer_cnt < last_cnt + 50){
                     DACSetValue(in_voltage);
                 }
             }
@@ -260,7 +261,38 @@ void main(void)
             Graphics_clearDisplay(&g_sContext); // Clear the display
             Graphics_drawStringCentered(&g_sContext, "Saw Tooth State", AUTO_STRING_LENGTH, 48, 65, TRANSPARENT_TEXT);
             Graphics_flushBuffer(&g_sContext);
-            DACSetValue(0);
+
+            double codes, delta_t, delta_v;
+
+            double sum = 0;
+            unsigned int in_temp;
+            unsigned int delta_v_input = 0;
+            float last_float = 0;
+            while(currButton != 3){
+                currButton = readButtons();
+                updateScroll();
+
+                codes = in_voltage * ( 4095/ 3.3);
+                delta_t =  0.0001 / (0.02 / codes);
+                delta_v = 3.3 / 4095;
+
+                last_cnt = timer_cnt + delta_t;
+                last_float = timer_cnt + delta_t;
+
+                while(timer_cnt < last_float ){
+                    DACSetValue(delta_v_input += 1);
+                }
+                if (delta_v_input >= codes){
+//                    sum = 0;
+                    delta_v_input = 0;
+                }
+
+
+            }
+
+            state = display;
+            Graphics_clearDisplay(&g_sContext); // Clear the display
+            currButton = NULL;
 
             break;
 
@@ -291,6 +323,43 @@ void main(void)
                 break;
             }
 
+            Graphics_clearDisplay(&g_sContext); // Clear the display
+            Graphics_drawStringCentered(&g_sContext, "Triangle Wave State", AUTO_STRING_LENGTH, 48, 65, TRANSPARENT_TEXT);
+            Graphics_flushBuffer(&g_sContext);
+
+
+//            double codes, delta_t, delta_v;
+//
+//            double sum = 0;
+//            unsigned int in_temp;
+//            unsigned int delta_v_input = 0;
+//            float last_float = 0;
+//            while(currButton != 3){
+//                currButton = readButtons();
+//                updateScroll();
+//
+//                codes = in_voltage * ( 4095/ 3.3);
+//                delta_t =  0.0001 / (0.02 / codes);
+//                delta_v = 3.3 / 4095;
+//
+//                last_cnt = timer_cnt + delta_t;
+//                last_float = timer_cnt + delta_t;
+//
+//                while(timer_cnt < last_float ){
+//                    DACSetValue(delta_v_input += 1);
+//                }
+//                if (delta_v_input >= codes){
+////                    sum = 0;
+//                    delta_v_input = 0;
+//                }
+//
+//
+//            }
+
+            state = display;
+            Graphics_clearDisplay(&g_sContext); // Clear the display
+            currButton = NULL;
+
             break;
 
         }// end of switch
@@ -311,12 +380,40 @@ void updateScroll(void){
     // Poll busy bit waiting for conversion to complete
     while (ADC12CTL1 & ADC12BUSY)
         __no_operation();
-    in_voltage = ADC12MEM0;
+    in_voltage = ADC12MEM0 & 0x0FFF;
 
     __no_operation();
 
 }
 
+void testLinearity(){
+    // set up ADC  *****************************************************
+    REFCTL0 &= ~REFMSTR;    // Reset REFMSTR to hand over control of
+                            // internal reference voltages to
+                            // ADC12_A control registers
+    ADC12CTL0 = ADC12SHT0_9 | ADC12REFON | ADC12ON ;     // Internal ref = 1.5V
+
+    ADC12CTL1 = ADC12SHP ;                     // Enable sample timer
+    // Using ADC12MEM0 to store reading
+    ADC12MCTL0 = ADC12SREF_0 + ADC12INCH_1;  // ADC i/p ch A0 = current sense
+                                              // ACD12SREF_1 = internal ref = 1.5v
+    P6SEL |= BIT1;
+    __delay_cycles(100);                    // delay to allow Ref to settle
+    ADC12CTL0 |= ADC12ENC;              // Enable conversion
+    // set up ADC  *****************************************************
+
+    ADC12CTL0 &= ~ADC12SC;  // clear the start bit
+    ADC12CTL0 |= ADC12SC;       // Sampling and conversion start
+                        // Single conversion (single channel)
+    // Poll busy bit waiting for conversion to complete
+    while (ADC12CTL1 & ADC12BUSY)
+        __no_operation();
+    input_voltage = ADC12MEM1 & 0x0FFF;
+
+    __no_operation();
+
+
+}
 
 
 void swDelay(char numLoops)
@@ -344,7 +441,8 @@ void swDelay(char numLoops)
 void runTimerA2(void){
     TA2CTL = TASSEL_1 + ID_0 + MC_1;
     // 0.001 = maxcnt + 1 * (1/32768)
-    TA2CCR0 = 32; // interrupt every 0.001 seconds
+//    TA2CCR0 = 32; // interrupt every 0.001 seconds
+    TA2CCR0 = 2; // interrupt every 0.0001 seconds
     TA2CCTL0 = CCIE;
 }
 
