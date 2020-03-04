@@ -35,6 +35,13 @@ int currButton;
 char date[7] = {0};
 
 
+// saw tooth variables
+double codes, delta_t, delta_v;
+double sum = 0;
+unsigned int in_temp;
+unsigned int delta_v_input = 0;
+float last_float = 0;
+
 
 #define secondsInDay 86400
 #define secondsInHour 3600
@@ -262,31 +269,24 @@ void main(void)
             Graphics_drawStringCentered(&g_sContext, "Saw Tooth State", AUTO_STRING_LENGTH, 48, 65, TRANSPARENT_TEXT);
             Graphics_flushBuffer(&g_sContext);
 
-            double codes, delta_t, delta_v;
+            sum = 0;
+            delta_v_input = 0;
+            last_float = 0;
 
-            double sum = 0;
-            unsigned int in_temp;
-            unsigned int delta_v_input = 0;
-            float last_float = 0;
             while(currButton != 3){
                 currButton = readButtons();
-                updateScroll();
+                
+//                updateScroll();
+//                codes = in_voltage * ( 4095/ 3.3);
+//                delta_t =  0.0001 / (0.02 / codes);
+//                delta_v = 3.3 / 4095;
 
-                codes = in_voltage * ( 4095/ 3.3);
-                delta_t =  0.0001 / (0.02 / codes);
-                delta_v = 3.3 / 4095;
+                last_cnt = timer_cnt + 200;
 
-                last_cnt = timer_cnt + delta_t;
-                last_float = timer_cnt + delta_t;
-
-                while(timer_cnt < last_float ){
-                    DACSetValue(delta_v_input += 1);
+                while(timer_cnt < last_cnt ){
+                    DACSetValue(delta_v_input += 32);
                 }
-                if (delta_v_input >= codes){
-//                    sum = 0;
-                    delta_v_input = 0;
-                }
-
+                delta_v_input = 0;
 
             }
 
@@ -328,33 +328,44 @@ void main(void)
             Graphics_flushBuffer(&g_sContext);
 
 
-//            double codes, delta_t, delta_v;
-//
-//            double sum = 0;
-//            unsigned int in_temp;
-//            unsigned int delta_v_input = 0;
-//            float last_float = 0;
-//            while(currButton != 3){
-//                currButton = readButtons();
-//                updateScroll();
-//
+            sum = 0;
+            delta_v_input = 0;
+            last_float = 0;
+
+            while(currButton != 3){
+                currButton = readButtons();
+                updateScroll();
+
 //                codes = in_voltage * ( 4095/ 3.3);
-//                delta_t =  0.0001 / (0.02 / codes);
-//                delta_v = 3.3 / 4095;
+                codes = 4095/3.3;
+
+                delta_t =  0.0001 / (0.02 / codes);
+                delta_v = 3.3 / 4095;
+
+                last_cnt = timer_cnt + delta_t;
+                last_float = timer_cnt + delta_t;
+
+                while(timer_cnt < last_float){
+                    DACSetValue(delta_v_input += 1);
+                    if (delta_v_input >= 4095)
+                        break;
+                }
+                delta_v_input = 4095;
+                last_cnt = timer_cnt + delta_t;
+                last_float = timer_cnt + delta_t;
 //
-//                last_cnt = timer_cnt + delta_t;
-//                last_float = timer_cnt + delta_t;
-//
-//                while(timer_cnt < last_float ){
-//                    DACSetValue(delta_v_input += 1);
-//                }
+                while(timer_cnt < last_float ){
+                    DACSetValue(delta_v_input -= 1);
+                    if (delta_v_input == 0)
+                        break;
+                }
 //                if (delta_v_input >= codes){
 ////                    sum = 0;
 //                    delta_v_input = 0;
 //                }
-//
-//
-//            }
+
+
+            }
 
             state = display;
             Graphics_clearDisplay(&g_sContext); // Clear the display
@@ -438,11 +449,20 @@ void swDelay(char numLoops)
 }
 
 
+//void runTimerA2(void){
+//    TA2CTL = TASSEL_2 + ID_0 + MC_1; // SMCLK =
+//    // 0.001 = maxcnt + 1 * (1/32768)
+////    TA2CCR0 = 32; // interrupt every 0.001 seconds
+//    TA2CCR0 = 4; // interrupt every 0.02/4095 seconds
+//    TA2CCTL0 = CCIE;
+//}
+
+
 void runTimerA2(void){
-    TA2CTL = TASSEL_1 + ID_0 + MC_1;
+    TA2CTL = TASSEL_1 + ID_0 + MC_1; // SMCLK =
     // 0.001 = maxcnt + 1 * (1/32768)
 //    TA2CCR0 = 32; // interrupt every 0.001 seconds
-    TA2CCR0 = 2; // interrupt every 0.0001 seconds
+    TA2CCR0 = 2; // interrupt every 0.02/4095 seconds
     TA2CCTL0 = CCIE;
 }
 
