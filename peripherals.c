@@ -139,9 +139,9 @@ unsigned int readButtons(void){
     if((P7IN & BIT0) == 0)
         ret_val = 1;
     if((P3IN & BIT6) == 0)
-        ret_val = 3;
-    if((P2IN & BIT2) == 0)
         ret_val = 2;
+    if((P2IN & BIT2) == 0)
+        ret_val = 3;
     if((P7IN & BIT4) == 0)
         ret_val = 4;
 
