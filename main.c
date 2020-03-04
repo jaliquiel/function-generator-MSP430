@@ -275,7 +275,7 @@ void main(void)
 
             while(currButton != 3){
                 currButton = readButtons();
-                
+
 //                updateScroll();
 //                codes = in_voltage * ( 4095/ 3.3);
 //                delta_t =  0.0001 / (0.02 / codes);
@@ -287,7 +287,6 @@ void main(void)
                     DACSetValue(delta_v_input += 32);
                 }
                 delta_v_input = 0;
-
             }
 
             state = display;
@@ -332,38 +331,29 @@ void main(void)
             delta_v_input = 0;
             last_float = 0;
 
-            while(currButton != 3){
+            while(currButton != 4){
                 currButton = readButtons();
-                updateScroll();
 
+//                updateScroll();
 //                codes = in_voltage * ( 4095/ 3.3);
-                codes = 4095/3.3;
+//                delta_t =  0.0001 / (0.02 / codes);
+//                delta_v = 3.3 / 4095;
 
-                delta_t =  0.0001 / (0.02 / codes);
-                delta_v = 3.3 / 4095;
+                last_cnt = timer_cnt + 100;
 
-                last_cnt = timer_cnt + delta_t;
-                last_float = timer_cnt + delta_t;
-
-                while(timer_cnt < last_float){
-                    DACSetValue(delta_v_input += 1);
-                    if (delta_v_input >= 4095)
-                        break;
+                while(timer_cnt < last_cnt ){
+                    DACSetValue(delta_v_input += 62);
                 }
-                delta_v_input = 4095;
-                last_cnt = timer_cnt + delta_t;
-                last_float = timer_cnt + delta_t;
-//
-                while(timer_cnt < last_float ){
-                    DACSetValue(delta_v_input -= 1);
-                    if (delta_v_input == 0)
-                        break;
-                }
-//                if (delta_v_input >= codes){
-////                    sum = 0;
-//                    delta_v_input = 0;
-//                }
 
+//                delta_v_input = 4095;
+
+                last_cnt = timer_cnt + 100;
+                while(timer_cnt < last_cnt ){
+                    DACSetValue(delta_v_input -= 62);
+
+                }
+
+                delta_v_input = 0;
 
             }
 
