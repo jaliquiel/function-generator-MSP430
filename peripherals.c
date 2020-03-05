@@ -145,8 +145,33 @@ unsigned int readButtons(void){
     if((P7IN & BIT4) == 0)
         ret_val = 4;
 
+    if((P1IN & BIT1) == 0)
+        ret_val = 5;
+    if((P2IN & BIT1) == 0)
+        ret_val = 6;
+
     return ret_val;
 }
+
+void initPushButons(void){
+    P1SEL &= ~BIT1;
+    P1DIR &= ~BIT1;
+    P1REN |= BIT1;
+    P1OUT |= BIT1;
+
+    P2SEL &= ~BIT1;
+    P2DIR &= ~BIT1;
+    P2REN |= BIT1;
+    P2OUT |= BIT1;
+}
+
+//int readButtons(void){
+//    if((P1IN & BIT1) == 0)
+//        return 1;
+//    if((P2IN & BIT1) == 0)
+//        return 2;
+//    return 0;
+//}
 
 void configKeypad(void)
 {
