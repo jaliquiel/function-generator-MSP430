@@ -1,374 +1,554 @@
-/*
- * peripherals.c
- *
- *  Created on: Jan 29, 2014
- *      Author: deemer
- *  Updated on Jan 3, 2016
- *  	smj
- *  Updated on Jan 14, 2018
- *      smj
- *  Updated on Aug 22, 2018
- *      smj
-  *  Updated on Jan 9, 2019
- *      smj
- *
- */
+/************** ECE2049 DEMO CODE ******************/
+/**************  13 March 2019   ******************/
+/***************************************************/
 
+
+/* Peripherals.c and .h are where the functions that implement
+ * the LEDs and keypad, etc are. It is often useful to organize
+ * your code by putting like functions together in files.
+ * You include the header associated with that file(s)
+ * into the main file of your project. */
 #include "peripherals.h"
-
-#define     DAC_PORT_LDAC_SEL   P3SEL
-#define     DAC_PORT_LDAC_DIR   P3DIR
-#define     DAC_PORT_LDAC_OUT   P3OUT
-#define     DAC_PORT_CS_SEL         P8OUT
-#define     DAC_PORT_CS_DIR     P8DIR
-#define     DAC_PORT_CS_OUT     P8OUT
-#define     DAC_PIN_CS          BIT2
-#define     DAC_PIN_LDAC    BIT7
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <math.h>
+#include <msp430.h>
 
 
-// Globals
-tContext g_sContext;    // user defined type used by graphics library
+// Function Prototypes
+void swDelay(char numLoops);
 
 
+// Declare globals here
+long unsigned int timer_cnt = 0;
+long unsigned int last_cnt = 0;
+
+long unsigned int startTime = 0;
+long unsigned int currentTime = 0;
+int i;
+long unsigned int seconds;
+
+int currButton;
+
+// variables here
+char date[7] = {0};
 
 
-void initLeds(void)
+// saw tooth variables
+double codes, delta_t, delta_v;
+double sum = 0;
+unsigned int in_temp;
+unsigned int delta_v_input = 0;
+float last_float = 0;
+
+
+// measure state variables
+float measure_voltage;
+
+#define secondsInDay 86400
+#define secondsInHour 3600
+#define secondsInMinute 60
+#define minutesInHour 60
+#define hoursInDays 24
+#define daysInYear 365
+
+#define daysTilJanEnd 31
+#define daysTilFebEnd 59
+#define daysTilMarEnd 90
+#define daysTilAprEnd 120
+
+// Temperature Sensor Calibration = Reading at 30 degrees C is stored at addr 1A1Ah
+// See end of datasheet for TLV table memory mapping
+#define CALADC12_15V_30C  *((unsigned int *)0x1A1A)
+// Temperature Sensor Calibration = Reading at 85 degrees C is stored at addr 1A1Ch
+#define CALADC12_15V_85C  *((unsigned int *)0x1A1C)
+// Resolution for current sensor:  1.0A/4096
+// (Here, we add the f suffix so the compiler will know this constant is a float)
+#define MA_PER_BIT        (0.0244f)
+
+unsigned int in_voltage;
+float input_voltage;
+
+enum LCD_STATE {display = 0, DC = 1, squareWave = 2, sawtoothWave = 3, triangleWave = 4, measure = 5};
+
+// Main
+void main(void)
+
 {
-    // Configure LEDs as outputs, initialize to logic low (off)
-    // Note the assigned port pins are out of order test board
-    // Red     P6.2
-    // Green   P6.1
-    // Blue    P6.3
-    // Yellow  P6.4
-    // smj -- 27 Dec 2016
 
-    P6SEL &= ~(BIT4|BIT3|BIT2|BIT1);
-    P6DIR |=  (BIT4|BIT3|BIT2|BIT1);
-    P6OUT &= ~(BIT4|BIT3|BIT2|BIT1);
+    WDTCTL = WDTPW | WDTHOLD;    // Stop watchdog timer. Always need to stop this!!
+    __bis_SR_register(GIE); // Global INterrupt enable
+
+
+    // Useful code starts here
+    initLeds();
+    configDisplay();
+    configKeypad();
+    initButtons();
+    initPushButons();
+    setupSPI_DAC();
+    DACInit();
+
+    enum LCD_STATE state = display;
+	
+    // set up ADC  *****************************************************
+    REFCTL0 &= ~REFMSTR;    // Reset REFMSTR to hand over control of
+                            // internal reference voltages to
+                            // ADC12_A control registers
+    ADC12CTL0 = ADC12SHT0_9 | ADC12REFON | ADC12ON ;     // Internal ref = 1.5V
+
+    ADC12CTL1 = ADC12SHP ;                     // Enable sample timer
+    // Using ADC12MEM0 to store reading
+    ADC12MCTL0 = ADC12SREF_1 + ADC12INCH_0;  // ADC i/p ch A0 = current sense
+                                              // ACD12SREF_1 = internal ref = 1.5v
+    P6SEL |= BIT0;
+    __delay_cycles(100);                    // delay to allow Ref to settle
+    ADC12CTL0 |= ADC12ENC;              // Enable conversion
+    // set up ADC  *****************************************************
+
+    unsigned int voltageOut;
+    unsigned int dac_code;
+
+    // *** Intro Screen ***
+    Graphics_clearDisplay(&g_sContext); // Clear the display
+
+
+    runTimerA2();
+    startTime = timer_cnt;
+
+    while (1)    // Forever loop
+    {
+
+        currButton = readButtons();
+//        if (currButton == 1){
+//            state = DC;
+//            Graphics_clearDisplay(&g_sContext); // Clear the display
+//            currButton = NULL;
+//        }
+//        if (currButton == 2){
+//            state = squareWave;
+//            Graphics_clearDisplay(&g_sContext); // Clear the display
+//            currButton = NULL;
+//        }
+//        if (currButton == 3){
+//            state = sawtoothWave;
+//            Graphics_clearDisplay(&g_sContext); // Clear the display
+//            currButton = NULL;
+//        }
+//        if (currButton == 4){
+//            state = triangleWave;
+//            Graphics_clearDisplay(&g_sContext); // Clear the display
+//            currButton = NULL;
+//        }
+        if(currButton == 5)
+        {
+             state = measure;
+             Graphics_clearDisplay(&g_sContext); // Clear the display
+             currButton = NULL;
+        }
+
+        switch(state){
+        case display:
+
+            currButton = readButtons();
+            if (currButton == 1){
+                state = DC;
+                Graphics_clearDisplay(&g_sContext); // Clear the display
+                currButton = NULL;
+            }
+            if (currButton == 2){
+                state = squareWave;
+                Graphics_clearDisplay(&g_sContext); // Clear the display
+                currButton = NULL;
+            }
+            if (currButton == 3){
+                state = sawtoothWave;
+                Graphics_clearDisplay(&g_sContext); // Clear the display
+                currButton = NULL;
+            }
+            if (currButton == 4){
+                state = triangleWave;
+                Graphics_clearDisplay(&g_sContext); // Clear the display
+                currButton = NULL;
+            }
+            if(currButton == 5)
+            {
+                 state = measure;
+                 Graphics_clearDisplay(&g_sContext); // Clear the display
+                 currButton = NULL;
+            }
+            currentTime = timer_cnt;
+            // check that one second has elapsed
+
+            // Display Strings
+            Graphics_drawStringCentered(&g_sContext, "Welcome", AUTO_STRING_LENGTH, 48, 65, TRANSPARENT_TEXT);
+            Graphics_drawStringCentered(&g_sContext, "Button 1 = DC", AUTO_STRING_LENGTH, 48, 75, TRANSPARENT_TEXT);
+            Graphics_drawStringCentered(&g_sContext, "Button 2 = Square Wave, etc.", AUTO_STRING_LENGTH, 48, 85, TRANSPARENT_TEXT);
+            Graphics_flushBuffer(&g_sContext);
+            break;
+
+        case DC:
+            currButton = readButtons();
+            if (currButton == 1){
+                state = display;
+                Graphics_clearDisplay(&g_sContext); // Clear the display
+                currButton = NULL;
+                break;
+            }
+            if (currButton == 2){
+                state = squareWave;
+                Graphics_clearDisplay(&g_sContext); // Clear the display
+                currButton = NULL;
+                break;
+            }
+            if (currButton == 3){
+                state = sawtoothWave;
+                Graphics_clearDisplay(&g_sContext); // Clear the display
+                currButton = NULL;
+                break;
+            }
+            if (currButton == 4){
+                state = triangleWave;
+                Graphics_clearDisplay(&g_sContext); // Clear the display
+                currButton = NULL;
+                break;
+            }
+
+            Graphics_clearDisplay(&g_sContext); // Clear the display
+            Graphics_drawStringCentered(&g_sContext, "DC state", AUTO_STRING_LENGTH, 48, 65, TRANSPARENT_TEXT);
+            Graphics_flushBuffer(&g_sContext);
+
+//            updateScroll();
+//
+//            DACSetValue(in_voltage);
+
+            testLinearity();
+
+
+            break;
+
+        case squareWave:
+            currButton = readButtons();
+            if (currButton == 1){
+                state = DC;
+                Graphics_clearDisplay(&g_sContext); // Clear the display
+                currButton = NULL;
+                break;
+            }
+            if (currButton == 2){
+                state = display;
+                Graphics_clearDisplay(&g_sContext); // Clear the display
+                currButton = NULL;
+                break;
+            }
+            if (currButton == 3){
+                state = sawtoothWave;
+                Graphics_clearDisplay(&g_sContext); // Clear the display
+                currButton = NULL;
+                break;
+            }
+            if (currButton == 4){
+                state = triangleWave;
+                Graphics_clearDisplay(&g_sContext); // Clear the display
+                currButton = NULL;
+                break;
+            }
+
+            Graphics_clearDisplay(&g_sContext); // Clear the display
+            Graphics_drawStringCentered(&g_sContext, "Square Wave State", AUTO_STRING_LENGTH, 48, 65, TRANSPARENT_TEXT);
+            Graphics_flushBuffer(&g_sContext);
+
+            while(currButton != 2){
+                currButton = readButtons();
+                updateScroll();
+                last_cnt = timer_cnt;
+                while(timer_cnt < last_cnt + 50){ // + 5 if MAXCNT 32 ,
+                    DACSetValue(0);
+                }
+
+                last_cnt = timer_cnt;
+
+                while(timer_cnt < last_cnt + 50){
+                    DACSetValue(in_voltage);
+                }
+            }
+
+            state = display;
+            Graphics_clearDisplay(&g_sContext); // Clear the display
+            currButton = NULL;
+            break;
+
+        case sawtoothWave:
+            currButton = readButtons();
+            if (currButton == 1){
+                state = DC;
+                Graphics_clearDisplay(&g_sContext); // Clear the display
+                currButton = NULL;
+                break;
+            }
+            if (currButton == 2){
+                state = squareWave;
+                Graphics_clearDisplay(&g_sContext); // Clear the display
+                currButton = NULL;
+                break;
+            }
+            if (currButton == 3){
+                state = display;
+                Graphics_clearDisplay(&g_sContext); // Clear the display
+                currButton = NULL;
+                break;
+            }
+            if (currButton == 4){
+                state = triangleWave;
+                Graphics_clearDisplay(&g_sContext); // Clear the display
+                currButton = NULL;
+                break;
+            }
+            Graphics_clearDisplay(&g_sContext); // Clear the display
+            Graphics_drawStringCentered(&g_sContext, "Saw Tooth State", AUTO_STRING_LENGTH, 48, 65, TRANSPARENT_TEXT);
+            Graphics_flushBuffer(&g_sContext);
+
+            sum = 0;
+            delta_v_input = 0;
+            last_float = 0;
+
+            while(currButton != 3){
+                currButton = readButtons();
+
+//                updateScroll();
+//                codes = in_voltage * ( 4095/ 3.3);
+//                delta_t =  0.0001 / (0.02 / codes);
+//                delta_v = 3.3 / 4095;
+
+                last_cnt = timer_cnt + 200;
+
+                while(timer_cnt < last_cnt ){
+                    DACSetValue(delta_v_input += 32);
+                }
+                delta_v_input = 0;
+            }
+
+            state = display;
+            Graphics_clearDisplay(&g_sContext); // Clear the display
+            currButton = NULL;
+
+            break;
+
+        case triangleWave:
+            currButton = readButtons();
+
+
+            if (currButton == 1){
+                state = DC;
+                Graphics_clearDisplay(&g_sContext); // Clear the display
+                currButton = NULL;
+                break;
+            }
+            if (currButton == 2){
+                state = squareWave;
+                Graphics_clearDisplay(&g_sContext); // Clear the display
+                currButton = NULL;
+                break;
+            }
+            if (currButton == 3){
+                state = sawtoothWave;
+                Graphics_clearDisplay(&g_sContext); // Clear the display
+                currButton = NULL;
+                break;
+            }
+            if (currButton == 4){
+                state = display;
+                Graphics_clearDisplay(&g_sContext); // Clear the display
+                currButton = NULL;
+                break;
+            }
+
+            Graphics_clearDisplay(&g_sContext); // Clear the display
+            Graphics_drawStringCentered(&g_sContext, "Triangle Wave State", AUTO_STRING_LENGTH, 48, 65, TRANSPARENT_TEXT);
+            Graphics_flushBuffer(&g_sContext);
+
+
+            sum = 0;
+            delta_v_input = 0;
+            last_float = 0;
+
+
+            while(currButton != 4){
+                currButton = readButtons();
+
+//                updateScroll();
+//                codes = in_voltage * ( 4095/ 3.3);
+//                delta_t =  0.0001 / (0.02 / codes);
+//                delta_v = 3.3 / 4095;
+
+                last_cnt = timer_cnt + 100;
+
+                while(timer_cnt < last_cnt ){
+                    DACSetValue(delta_v_input += 62);
+                }
+
+//                delta_v_input = 4095;
+
+                last_cnt = timer_cnt + 100;
+                while(timer_cnt < last_cnt ){
+                    DACSetValue(delta_v_input -= 62);
+
+                }
+
+                delta_v_input = 0;
+
+            }
+
+            state = display;
+            Graphics_clearDisplay(&g_sContext); // Clear the display
+            currButton = NULL;
+
+            break;
+
+        case measure:
+
+            // set up ADC  *****************************************************
+            REFCTL0 &= ~REFMSTR;    // Reset REFMSTR to hand over control of
+                                    // internal reference voltages to
+                                    // ADC12_A control registers
+            ADC12CTL0 = ADC12SHT0_9 | ADC12REFON | ADC12ON ;     // Internal ref = 1.5V
+
+            ADC12CTL1 = ADC12SHP ;                     // Enable sample timer
+            // Using ADC12MEM0 to store reading
+            ADC12MCTL0 = ADC12SREF_0 + ADC12INCH_0;  // ADC i/p ch A0 = current sense
+                                                      // ACD12SREF_1 = internal ref = 1.5v
+            P6SEL |= BIT0;
+            P6DIR |= BIT0;
+            __delay_cycles(100);                    // delay to allow Ref to settle
+            ADC12CTL0 |= ADC12ENC;              // Enable conversion
+
+            // set up ADC  *****************************************************
+
+
+            Graphics_clearDisplay(&g_sContext); // Clear the display
+            Graphics_drawStringCentered(&g_sContext, "Measure State", AUTO_STRING_LENGTH, 48, 65, TRANSPARENT_TEXT);
+            Graphics_flushBuffer(&g_sContext);
+
+
+            ADC12CTL0 &= ~ADC12SC;  // clear the start bit
+            ADC12CTL0 |= ADC12SC;       // Sampling and conversion start
+                                // Single conversion (single channel)
+            // Poll busy bit waiting for conversion to complete
+            while (ADC12CTL1 & ADC12BUSY)
+                __no_operation();
+            in_voltage = ADC12MEM0 & 0x0FFF;
+
+            DACSetValue(in_voltage);
+
+            __no_operation();
+//            measure_voltage = testLinearity();
+
+
+
+            break;
+
+        }// end of switch
+
+    }  // end while (1)
+}   //end main
+
+
+
+
+//
+// updates milliamps current
+void updateScroll(void){
+
+    ADC12CTL0 &= ~ADC12SC;  // clear the start bit
+    ADC12CTL0 |= ADC12SC;       // Sampling and conversion start
+                        // Single conversion (single channel)
+    // Poll busy bit waiting for conversion to complete
+    while (ADC12CTL1 & ADC12BUSY)
+        __no_operation();
+    in_voltage = ADC12MEM0 & 0x0FFF;
+
+    __no_operation();
+
 }
 
-void setLeds(unsigned char state)
+float testLinearity(void){
+//    // set up ADC  *****************************************************
+//    REFCTL0 &= ~REFMSTR;    // Reset REFMSTR to hand over control of
+//                            // internal reference voltages to
+//                            // ADC12_A control registers
+//    ADC12CTL0 = ADC12SHT0_9 | ADC12REFON | ADC12ON ;     // Internal ref = 1.5V
+//
+//    ADC12CTL1 = ADC12SHP ;                     // Enable sample timer
+//    // Using ADC12MEM0 to store reading
+//    ADC12MCTL0 = ADC12SREF_0 + ADC12INCH_1;  // ADC i/p ch A0 = current sense
+//                                              // ACD12SREF_1 = internal ref = 1.5v
+//    P6SEL |= BIT0;
+//    __delay_cycles(100);                    // delay to allow Ref to settle
+//    ADC12CTL0 |= ADC12ENC;              // Enable conversion
+//    // set up ADC  *****************************************************
+//
+//    ADC12CTL0 &= ~ADC12SC;  // clear the start bit
+//    ADC12CTL0 |= ADC12SC;       // Sampling and conversion start
+//                        // Single conversion (single channel)
+//    // Poll busy bit waiting for conversion to complete
+//    while (ADC12CTL1 & ADC12BUSY)
+//        __no_operation();
+//    input_voltage = ADC12MEM0 & 0x0FFF;
+//
+////    __no_operation();
+//
+//    return input_voltage;
+}
+
+
+void swDelay(char numLoops)
 {
-    // Turn on 4 colored LEDs on P6.1-6.4 to match the hex value
-    // passed in on low nibble state. Unfortunately the LEDs are
-    // out of order with 6.2 is the left most (i.e. what we think
-    // of as MSB), then 6.1 followed by 6.3 and finally 6.4 is
-    // the right most (i.e.  what we think of as LSB) so we have
-    // to be a bit clever in implementing our LEDs
-    //
-    // Input: state = hex values to display (in low nibble)
-    // Output: none
-    //
-    // smj, ECE2049, 27 Dec 2015
+	// This function is a software delay. It performs
+	// useless loops to waste a bit of time
+	//
+	// Input: numLoops = number of delay loops to execute
+	// Output: none
+	//
+	// smj, ECE2049, 25 Aug 2013
 
-    unsigned char mask = 0;
+	volatile unsigned int i,j;	// volatile to prevent removal in optimization
+			                    // by compiler. Functionally this is useless code
 
-    // Turn all LEDs off to start
-    P6OUT &= ~(BIT4|BIT3|BIT2|BIT1);
-
-    if (state & BIT0)
-        mask |= BIT4;   // Right most LED P6.4
-    if (state & BIT1)
-        mask |= BIT3;   // next most right LED P.3
-    if (state & BIT2)
-        mask |= BIT1;   // third most left LED P6.1
-    if (state & BIT3)
-        mask |= BIT2;   // Left most LED on P6.2
-    P6OUT |= mask;
-}
-
-
-/*
- * Enable a PWM-controlled buzzer on P3.5
- * This function makes use of TimerB0.
- */
-void BuzzerOn(void)
-{
-    // Initialize PWM output on P3.5, which corresponds to TB0.5
-    P3SEL |= BIT5; // Select peripheral output mode for P3.5
-    P3DIR |= BIT5;
-
-    TB0CTL  = (TBSSEL__ACLK|ID__1|MC__UP);  // Configure Timer B0 to use ACLK, divide by 1, up mode
-    TB0CTL  &= ~TBIE;                       // Explicitly Disable timer interrupts for safety
-
-    // Now configure the timer period, which controls the PWM period
-    // Doing this with a hard coded values is NOT the best method
-    // We do it here only as an example. You will fix this in Lab 2.
-    TB0CCR0   = 128;                    // Set the PWM period in ACLK ticks
-    TB0CCTL0 &= ~CCIE;                  // Disable timer interrupts
-
-    // Configure CC register 5, which is connected to our PWM pin TB0.5
-    TB0CCTL5  = OUTMOD_7;                   // Set/reset mode for PWM
-    TB0CCTL5 &= ~CCIE;                      // Disable capture/compare interrupts
-    TB0CCR5   = TB0CCR0/2;                  // Configure a 50% duty cycle
-}
-
-/*
- * Disable the buzzer on P7.5
- */
-void BuzzerOff(void)
-{
-    // Disable both capture/compare periods
-    TB0CCTL0 = 0;
-    TB0CCTL5 = 0;
-}
-
-void initButtons(void){
-    //configure S1 and S4 with pull up resistors
-    P7SEL &= ~(BIT0|BIT4);
-    P7DIR &= ~(BIT0|BIT4);
-    P7REN |= (BIT0|BIT4);
-    P7OUT |= (BIT0|BIT4);
-
-    //configure S2 with pull up resistor
-    P3SEL &= ~BIT6;
-    P3DIR &= ~BIT6;
-    P3REN |= BIT6;
-    P3OUT |= BIT6;
-
-    //configure S3 with pull up resistor
-    P2SEL &= ~BIT2;
-    P2DIR &= ~BIT2;
-    P2REN |= BIT2;
-    P2OUT |= BIT2;
-}
-
-unsigned int readButtons(void){
-    unsigned int ret_val = 0;
-
-    if((P7IN & BIT0) == 0)
-        ret_val = 1;
-    if((P3IN & BIT6) == 0)
-        ret_val = 2;
-    if((P2IN & BIT2) == 0)
-        ret_val = 3;
-    if((P7IN & BIT4) == 0)
-        ret_val = 4;
-
-    if((P1IN & BIT1) == 0)
-        ret_val = 5;
-    if((P2IN & BIT1) == 0)
-        ret_val = 6;
-
-    return ret_val;
-}
-
-void initPushButons(void){
-    P1SEL &= ~BIT1;
-    P1DIR &= ~BIT1;
-    P1REN |= BIT1;
-    P1OUT |= BIT1;
-
-    P2SEL &= ~BIT1;
-    P2DIR &= ~BIT1;
-    P2REN |= BIT1;
-    P2OUT |= BIT1;
-}
-
-//int readButtons(void){
-//    if((P1IN & BIT1) == 0)
-//        return 1;
-//    if((P2IN & BIT1) == 0)
-//        return 2;
-//    return 0;
-//}
-
-void configKeypad(void)
-{
-    // Configure digital IO for keypad
-    // smj -- 27 Dec 2015
-
-    // Col1 = P1.5 =
-    // Col2 = P2.4 =
-    // Col3 = P2.5 =
-    // Row1 = P4.3 =
-    // Row2 = P1.2 =
-    // Row3 = P1.3 =
-    // Row4 = P1.4 =
-
-    P1SEL &= ~(BIT5|BIT4|BIT3|BIT2);
-    P2SEL &= ~(BIT5|BIT4);
-    P4SEL &= ~(BIT3);
-
-    // Columns are ??
-    P2DIR |= (BIT5|BIT4);
-    P1DIR |= BIT5;
-    P2OUT |= (BIT5|BIT4); //
-    P1OUT |= BIT5;        //
-
-    // Rows are ??
-    P1DIR &= ~(BIT2|BIT3|BIT4);
-    P4DIR &= ~(BIT3);
-    P4REN |= (BIT3);  //
-    P1REN |= (BIT2|BIT3|BIT4);
-    P4OUT |= (BIT3);  //
-    P1OUT |= (BIT2|BIT3|BIT4);
-}
-
-
-unsigned char getKey(void)
-{
-    // Returns ASCII value of key pressed from keypad or 0.
-    // Does not decode or detect when multiple keys pressed.
-    // smj -- 27 Dec 2015
-    // Updated -- 14 Jan 2018
-
-    unsigned char ret_val = 0;
-
-    // Set Col1 = ?, Col2 = ? and Col3 = ?
-    P1OUT &= ~BIT5;
-    P2OUT |= (BIT5|BIT4);
-    // Now check value from each rows
-    if ((P4IN & BIT3)==0)
-        ret_val = '1';
-    if ((P1IN & BIT2)==0)
-        ret_val = '4';
-    if ((P1IN & BIT3)==0)
-        ret_val = '7';
-    if ((P1IN & BIT4)==0)
-        ret_val = '*';
-    P1OUT |= BIT5;
-
-    // Set Col1 = ?, Col2 = ? and Col3 = ?
-    P2OUT &= ~BIT4;
-    // Now check value from each rows
-    if ((P4IN & BIT3)==0)
-        ret_val = '2';
-    if ((P1IN & BIT2)==0)
-        ret_val = '5';
-    if ((P1IN & BIT3)==0)
-        ret_val = '8';
-    if ((P1IN & BIT4)==0)
-        ret_val = '0';
-    P2OUT |= BIT4;
-
-    // Set Col1 = ?, Col2 = ? and Col3 = ?
-    P2OUT &= ~BIT5;
-    // Now check value from each rows
-    if ((P4IN & BIT3)==0)
-        ret_val = '3';
-    if ((P1IN & BIT2)==0)
-        ret_val = '6';
-    if ((P1IN & BIT3)==0)
-        ret_val = '9';
-    if ((P1IN & BIT4)==0)
-        ret_val = '#';
-    P2OUT |= BIT5;
-
-    return(ret_val);
-}
-
-
-void configDisplay(void)
-{
-    // Enable use of external clock crystals
-     P5SEL |= (BIT5|BIT4|BIT3|BIT2);
-
-	// Initialize the display peripheral
-	Sharp96x96_Init();
-
-    // Configure the graphics library to use this display.
-	// The global g_sContext is a data structure containing information the library uses
-	// to send commands for our particular display.
-	// You must pass this parameter to each graphics library function so it knows how to
-	// communicate with our display.
-    Graphics_initContext(&g_sContext, &g_sharp96x96LCD);
-
-
-    Graphics_setForegroundColor(&g_sContext, ClrBlack);
-    Graphics_setBackgroundColor(&g_sContext, ClrWhite);
-    Graphics_setFont(&g_sContext, &g_sFontFixed6x8);
-    Graphics_clearDisplay(&g_sContext);
-    Graphics_flushBuffer(&g_sContext);
-}
-
-
-void setupSPI_DAC(void)
-{
-// ** Set UCSI A0 Reset=1 to configure control registers **
-     UCB0CTL1 |= UCSWRST;
-     // 3-pin (SCLK, SIMO, SOMI), 8-bit, this MSP430 is SPI master,
-     // Clock polarity high, send data MSB first
-     UCB0CTL0 = UCMST + UCSYNC + UCCKPH + UCMSB;
-     // Use SMCLK as clock source, keep RESET = 1
-     UCB0CTL1 = UCSWRST + UCSSEL_2;
-
-     UCB0BR0 = 2;   // SCLK = SMCLK/2 = 524288Hz
-     UCB0BR1 = 0;
-
-     //UCB0MCTL = 0;   // write MCTL as 0
-
-     // Enable UCSI A0
-     UCB0CTL1 &= ~UCSWRST;
-}
-
-
-/**
-* Initialize the DAC and its associated SPI
-* using parameters defined in peripherals.h
-*/
-void DACInit(void){
-    // Configure LDAC and CS for digital IO outputs
-    DAC_PORT_LDAC_SEL &= ~DAC_PIN_LDAC;
-    DAC_PORT_LDAC_DIR |= DAC_PIN_LDAC;
-    DAC_PORT_LDAC_OUT |= DAC_PIN_LDAC; // Deassert LDAC
-    DAC_PORT_CS_SEL &= ~DAC_PIN_CS;
-    DAC_PORT_CS_DIR |= DAC_PIN_CS;
-    DAC_PORT_CS_OUT |= DAC_PIN_CS; // Deassert CS
-}
-
-void DACSetValue(unsigned int dac_code){
-    // Start the SPI transmission by asserting CS (active
-    // Th is assumes DACInit() already called
-    DAC_PORT_CS_OUT &= ~DAC_PIN_CS;
-
-    // Write in DAC configuration bits. From DAC data sheet
-    // 3h=0011 to highest
-    // 0=DACA, 0=buffered, 1=Gain=1, 1=Out Enbl
-    dac_code |= 0x3000; // Add control bits to DAC word
-    uint8_t lo_byte = (unsigned char)(dac_code & 0x00FF);
-    uint8_t hi_byte = (unsigned char)((dac_code & 0xFF00) >> 8);
-
-    // First, send the high byte
-    DAC_SPI_REG_TXBUF = hi_byte;
-
-    // Wait for the SPI peripheral to finish transmitting
-    while(!(DAC_SPI_REG_IFG & UCTXIFG)){
-        _no_operation();
+	for (j=0; j<numLoops; j++)
+    {
+    	i = 50000 ;					// SW Delay
+   	    while (i > 0)				// could also have used while (i)
+	       i--;
     }
-
-    // Then send the low byte
-    DAC_SPI_REG_TXBUF = lo_byte;
-
-    // Wait for the SPI peripheral to finish transmitting
-    while(!(DAC_SPI_REG_IFG & UCTXIFG)) {
-    _no_operation();
-    }
-
-    // We are done transmitting, so de assert CS (set = 1)
-    DAC_PORT_CS_OUT |= DAC_PIN_CS;
-
-    // This DAC is designed such that the code we send does not
-    // take effect on the output until we toggle the LDAC pin.
-    // This is because the DAC has multiple outputs. This design
-    // enables a user to send voltage codes to each output and
-    // have them all take effect at the same
-    DAC_PORT_LDAC_OUT &= ~DAC_PIN_LDAC; // Assert LDAC
-    __delay_cycles(10); // small delay
-    DAC_PORT_LDAC_OUT |= DAC_PIN_LDAC; // De as sert LDAC
-
 }
 
 
 
+void runTimerA2(void){
+    TA2CTL = TASSEL_1 + ID_0 + MC_1; // SMCLK =
+    // 0.001 = maxcnt + 1 * (1/32768)
+//    TA2CCR0 = 32; // interrupt every 0.001 seconds
+    TA2CCR0 = 2; // interrupt every 0.02/4095 seconds
+    TA2CCTL0 = CCIE;
+}
+
+void stopTimerA2(int reset){
+    TA2CTL = MC_0; // stop timer
+    TA2CCTL0 &= ~CCIE; // TA2CCR0 interrupt disabled
+    if(reset)
+        timer_cnt=0;
+}
 
 //------------------------------------------------------------------------------
-// Timer1 A0 Interrupt Service Routine
+// Timer2 A2 Interrupt Service Routine
 //------------------------------------------------------------------------------
-#pragma vector=TIMER1_A0_VECTOR
-__interrupt void TIMER1_A0_ISR (void)
+#pragma vector=TIMER2_A0_VECTOR
+__interrupt void TIMER_A2_ISR (void)
 {
-	// Display is using Timer A1
-	// Not sure where Timer A1 is configured?
-	Sharp96x96_SendToggleVCOMCommand();  // display needs this toggle < 1 per sec
+    // Display is using Timer A1
+    // Not sure where Timer A1 is configured?
+//    Sharp96x96_SendToggleVCOMCommand();  // display needs this toggle < 1 per sec
+    timer_cnt++;
+
 }
